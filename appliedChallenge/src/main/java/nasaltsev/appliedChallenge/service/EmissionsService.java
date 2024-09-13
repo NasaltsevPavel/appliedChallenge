@@ -79,13 +79,6 @@ public class EmissionsService {
 
         BigDecimal co2 = energy.multiply(emissionFactor).divide(BigDecimal.valueOf(1000), RoundingMode.HALF_UP).setScale(2, RoundingMode.HALF_UP);
 
-        /* Oder soll es nicht möglich sein, durch 0 zu dividieren?
-       // if (emissionFactor.compareTo(BigDecimal.ZERO) != 0) {
-       //     co2 = energy.multiply(emissionFactor).divide(BigDecimal.valueOf(1000), RoundingMode.HALF_DOWN);
-       // } else {
-       //     co2 = energy.divide(BigDecimal.valueOf(1000), RoundingMode.HALF_UP);}
-       */
-
           return new ConsumptionResponse(verifiedEnergySource.getScopeId(), verifiedEnergySource.getName(), energy, co2);
     }
 

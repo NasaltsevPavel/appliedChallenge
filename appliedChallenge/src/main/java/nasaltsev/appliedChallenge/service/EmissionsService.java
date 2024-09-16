@@ -26,7 +26,7 @@ public class EmissionsService {
 
     public List<ConsumptionResponse> calculateCarbonFootprint(List<ConsumptionRequest> consumptionRequest) {
         List<EnergyScope> scopes = externalAPIService.getScopes();
-        List<ConsumptionResponse> consumptionResponse = mapScopeToConsumptionResponse(scopes);
+        List<ConsumptionResponse> consumptionResponseList = mapScopeToConsumptionResponse(scopes);
 
         Map<String, Integer> subScopeCounters = new HashMap<>();
 
@@ -38,29 +38,22 @@ public class EmissionsService {
             );
 
             EnergyScope matchedScope = scopes.stream()
-                    .filter(scope -> scope.getSubScopes().stream()
-                            .anyMatch(subScope -> subScope.getId().equals(responseData.getName()))).findFirst()
-                    .orElseThrow(() -> new SubScopeNotFoundException("Scope with ID " + responseData.getName() + " not found"));
-
-            EnergyScope subScope = matchedScope.getSubScopes().stream()
-                    .filter(s -> s.getId().equals(responseData.getName()))
+                    .flatMap(scope -> scope.getSubScopes().stream())
+                    .filter(subScope -> subScope.getId().equals(responseData.getName()))
                     .findFirst()
                     .orElseThrow(() -> new SubScopeNotFoundException("SubScope with ID " + responseData.getName() + " not found"));
 
+            subScopeCounters.putIfAbsent(matchedScope.getName(), 0);
+            int n = subScopeCounters.get(matchedScope.getName()) + 1;
+            subScopeCounters.put(matchedScope.getName(), n);
 
-            subScopeCounters.putIfAbsent(subScope.getName(), 0);
-            int n = subScopeCounters.get(subScope.getName()) + 1;
-            subScopeCounters.put(subScope.getName(), n);
-
-            responseData.setName(subScope.getName() + "." + n);
+            responseData.setName(matchedScope.getName() + "." + n);
             responseData.setLabel(responseData.getLabel() + " (" + request.getDescription() + ")");
 
-
-            addRequestToResponseList(consumptionResponse, responseData, subScope.getName());
-
+            addRequestToResponseList(consumptionResponseList, responseData, matchedScope.getName());
         }
 
-        return calculateTotals(consumptionResponse);
+        return calculateTotals(consumptionResponseList);
     }
 
 
@@ -79,7 +72,7 @@ public class EmissionsService {
 
         BigDecimal co2 = energy.multiply(emissionFactor).divide(BigDecimal.valueOf(1000), RoundingMode.HALF_UP).setScale(2, RoundingMode.HALF_UP);
 
-          return new ConsumptionResponse(verifiedEnergySource.getScopeId(), verifiedEnergySource.getName(), energy, co2);
+        return new ConsumptionResponse(verifiedEnergySource.getScopeId(), verifiedEnergySource.getName(), energy, co2);
     }
 
     private List<ConsumptionResponse> mapScopeToConsumptionResponse(List<EnergyScope> energyScopes) {
@@ -105,16 +98,13 @@ public class EmissionsService {
 
     private List<ConsumptionResponse> calculateTotals(List<ConsumptionResponse> consumptionResponseList) {
         for (ConsumptionResponse scope : consumptionResponseList) {
-            BigDecimal totalEnergy = BigDecimal.ZERO;
-            BigDecimal totalCO2 = BigDecimal.ZERO;
+            BigDecimal totalEnergy = scope.getChildren().stream()
+                    .map(this::calculateChildTotalEnergy)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-            for (ConsumptionResponse child : scope.getChildren()) {
-                BigDecimal childTotalEnergy = calculateChildTotalEnergy(child);
-                BigDecimal childTotalCO2 = calculateChildTotalCO2(child);
-
-                totalEnergy = totalEnergy.add(childTotalEnergy);
-                totalCO2 = totalCO2.add(childTotalCO2);
-            }
+            BigDecimal totalCO2 = scope.getChildren().stream()
+                    .map(this::calculateChildTotalCO2)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
 
             scope.setEnergy(totalEnergy);
             scope.setCo2(totalCO2);

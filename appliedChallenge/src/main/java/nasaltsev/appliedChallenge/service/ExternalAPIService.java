@@ -37,7 +37,4 @@ public class ExternalAPIService {
                 .collectList()
                 .block();
     }
-
-
-
 }
